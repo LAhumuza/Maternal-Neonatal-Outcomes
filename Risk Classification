@@ -1,0 +1,56 @@
+
+library(tidyverse)
+library(dplyr)
+library(mice)
+library(naniar)
+library(lme4)
+library(forcats)
+library(scales)
+library(MASS)
+library(geepack)
+library(car)
+library(ordinal)
+library(VGAM)
+library(lmtest)
+library(brant)
+
+impt <- readRDS("Final_thesis.rds")
+
+#-------------------Exclude High Risk Women Before Model Fitting--------------------------------
+imp_list <- lapply(1:5, function(i) {
+  complete(impt, i)}) # extract each of the 5 data sets
+
+#apply each filter to each data set: This avoids errors of unequal group sizes in imputation index
+imp_list <- lapply(imp_list, function(d) {
+  
+  d <- subset(
+    d,
+    pregnancyDuration == ">= 37 weeks" &
+      babyPosition == "cephalic" &
+      sectionInAnamnesis == "no"
+  )
+  #modification of some variables
+  d$resusc_bin <- ifelse(d$resuscitation_any == "yes", 1, 0)
+  d$bathBirth_bin <- ifelse(d$bathBirth == "yes", 1, 0)
+  d$bloodloss_bin <- ifelse(d$bloodLoss == ">500ml", 1, 0)
+  d$year_c <- d$year - 2020
+  d$birthWeight_kg <- d$birthWeight / 1000 # change scale of weight for numerical reasons later
+  
+  # Create meaningful reference levels
+  d$fetalSurveillance <- relevel(d$fetalSurveillance, ref = "intermittent")
+  d$delivery <- relevel(d$delivery, ref = "spontaneously")
+  d$pregnancyOnset <- relevel(d$pregnancyOnset, ref = "spontaneous")
+  d$relationship <- relevel(d$relationship, ref = "single")
+  d$birthPlace <- relevel(d$birthPlace, ref = "hospital")
+  d$birthingResponsibility <- relevel(d$birthingResponsibility, ref = "obstetrician")
+  d$placentalPhase <- relevel(d$placentalPhase, ref = "spontaneous")
+  
+  d$apgar1_cat <- ifelse(d$apgar1min < 7, 1, 0)
+  d$apgar1_cat <- factor(d$apgar1_cat, levels = c(0, 1))
+  d$apgar5_cat <- ifelse(d$apgar5min < 7, 1, 0)
+  d$apgar5_cat <- factor(d$apgar5_cat, levels = c(0, 1))
+  d$perineum_bin <- ifelse(d$perineum %in% c("moderate", "severe"), 1, 0)
+  d$perineum_bin <- factor(d$perineum_bin, levels = c(0, 1))
+  d
+})
+
