@@ -1,0 +1,236 @@
+
+data20<-read.csv(".../Finalclean20.csv")
+data21<-read.csv(".../Finalclean21.csv")
+data22<-read.csv(".../Finalclean22.csv")
+data23<-read.csv(".../Finalclean23.csv")
+data24<-read.csv(".../Finalclean24.csv")
+
+library(tidyverse)
+library(dplyr)
+library(ggplot2)
+
+#-----------------------Combine data sets------------------------------
+#first we apply the intersect function to all data sets to get variables that exist in all
+
+Reduce(intersect, list(
+  names(data20),
+  names(data21),
+  names(data22),
+  names(data23),
+  names(data24)
+))
+
+#correct inconsistent variable types
+data24$apgar1min <- as.integer(trimws(data24$apgar1min))
+data24$apgar5min <- as.integer(trimws(data24$apgar5min))
+
+levels_bloodloss <- c("<500ml", "500-1000ml", ">1000ml")
+
+data20$bloodLoss <- factor(data20$bloodLoss, levels = levels_bloodloss, ordered = TRUE)
+data21$bloodLoss <- factor(data21$bloodLoss, levels = levels_bloodloss, ordered = TRUE)
+data22$bloodLoss <- factor(data22$bloodLoss, levels = levels_bloodloss, ordered = TRUE)
+data23$bloodLoss <- factor(data23$bloodLoss, levels = levels_bloodloss, ordered = TRUE)
+data24$bloodloss <- factor(data24$bloodloss, levels = levels_bloodloss, ordered = TRUE)
+
+
+data24 <- data24 %>% select(-which(duplicated(names(data24)))) %>% select(-timeUmbilicalCodeClampingMin)%>%
+  rename(birthWeight = birthWeight...45)
+
+
+#convert birth weight to numeric in all other data sets
+data21$birthWeight <- as.integer(data21$birthWeight)
+data22$birthWeight <- as.integer(data22$birthWeight)
+data23$birthWeight <- as.integer(data23$birthWeight)
+
+#may be important during random effects modelling
+data21$zipcode <- as.factor(data21$zipcode)
+data20$zipcode <- as.factor(data20$zipcode)
+data22$zipcode <- as.factor(data22$zipcode)
+data23$zipcode <- as.factor(data23$zipcode)
+data24$zipcode  <- as.factor(data24$zipcode)
+data24$ZipcodeBirthCenter  <- as.factor(data24$zipcodeBirthCenter)
+
+data20$practiceCode <- as.factor(data20$practiceCode)
+data21$practiceCode <- as.factor(data21$practiceCode)
+data22$practiceCode <- as.factor(data22$practiceCode)
+data23$practiceCode <- as.factor(data23$practiceCode)
+data24$practiceCode <- as.factor(data24$practiceCode)
+
+#fix age
+data21$maternalAge <- as.integer(data21$maternalAge)
+data22$maternalAge <- as.integer(data22$maternalAge)
+data23$maternalAge <- as.integer(data23$maternalAge)
+data24$maternalAge <- as.integer(data24$maternalAge)
+
+data23$nParity <- as.integer(data23$nParity)
+data23$pregnancyOnset <- tolower(data23$pregnancyOnset)
+
+data22 <- data22 %>% rename(reasonForReferral = reasonForReferral...47 )
+
+data24$nParity <- as.integer(data24$nParity)
+data24$nGravidity <- as.integer(data24$nGravidity)
+data24$nMiscarriage <- as.integer(data24$nMiscarriage)
+data24$nAbortion <- as.integer(data24$nAbortion)
+
+#combine reasons for referral
+data24 <- data24 %>%
+  mutate(
+    reasonForReferral = coalesce(referralReason, referralReason...55, referralReason...84)
+  ) %>%
+  select(-dateofBirth, -referralReason, -referralReason...55, -referralReason...84)
+
+data24 <- data24 %>% mutate(
+  breakingofMembranes = case_when(
+  
+    breakingofMembranes %in% c("AROM", "AROM (Artificial rupture of membranes)", "RAPE") ~ "arom",
+  
+    breakingofMembranes %in% c("RSPE", "SROM", "SROM (Spontaneous rupture of membranes)") ~ "srom",
+  
+    breakingofMembranes %in% c(
+    "PROM",
+    "PROM (premature rupture of membranes)",
+    "PROM (prelabour rupture of membranes)"
+  ) ~ "prom",
+  
+  breakingofMembranes == "geboren in vliezen" ~ "born_in_membranes",
+  
+  breakingofMembranes ==
+    "Hoge vliesscheur, amniotomie voorliggende vochtblaas" ~
+    "high_membrane_tear_amniotomy",
+  
+  breakingofMembranes == "NULL" ~ NA_character_,
+  
+  TRUE ~ breakingofMembranes
+))
+
+
+data22$nMiscarriage <- as.numeric(data22$nMiscarriage)
+data22$nAbortion <- as.numeric(data22$nAbortion)
+
+
+#---------------------STACKING THE DATA---------------------------
+all_data <- bind_rows(
+  data20 %>% mutate(year = 2020),
+  data21 %>% mutate(year = 2021),
+  data22 %>% mutate(year = 2022),
+  data23 %>% mutate(year = 2023),
+  data24 %>% mutate(year = 2024)
+)
+
+names(all_data) #check to see our new data now
+#grep("reasonForReferral", names(all_data), value = TRUE) #reason for referral duplicates
+
+#merging the reasons into one for a proper analysis
+all_data <- all_data %>%
+  mutate(reasonForReferral = coalesce(
+    reasonForReferral,
+    reasonForReferral...40,
+    reasonForReferral...64
+  )) %>%
+  select(-starts_with("reasonForReferral.."))
+
+
+#----------------Cleaning all data to make sure no duplicate columns-----------
+#blood loss duplication due to lower vs upper case
+all_data <- all_data %>% mutate(
+    bloodLoss = coalesce(bloodLoss, bloodloss)
+  ) %>%
+  select(-bloodloss) 
+
+#repeated PMRGS
+all_data <- all_data %>%
+  mutate(ProlongedMembranesRuptureAndGBSstatus =
+           coalesce(ProlongedMembranesRuptureAndGBSstatus,
+                    prolongedMembranesRuptureAndGBSstatus)) %>%
+  select(-prolongedMembranesRuptureAndGBSstatus)
+
+#names(all_data)
+
+
+
+#----------------------- Combining Duplicated spellings for consistency -----------------------------------
+all_data <- all_data %>% mutate(
+  breakingofMembranes = case_when(
+    breakingofMembranes == "Spontaneous rupture of membranes (SROM)" ~ "srom",
+    TRUE ~ breakingofMembranes
+  ),
+  resuscitation = case_when(
+  resuscitation %in% c("5 inflaties, beademing", "5InflationsAndVentilation",
+                         "inflations_with_ventilation") ~ "inflations_with_ventilation",
+   resuscitation %in% c("none","None", "geen", "no") ~ "none",
+   resuscitation %in% c("5Inflations","inflations") ~ "inflations",
+   resuscitation %in% c("stimulayions", "stimulation","stimulation_based") ~ "stimulation_based",
+   resuscitation %in% c("PEEP_CPAP", "PEEP CPAP","PEEPandCPAP") ~ "PEEP_CPAP",
+   resuscitation == "inflations_with_aspiration_or_O2" ~ "inflations_with_aspiration_or_O2",
+    TRUE ~ resuscitation
+    
+  ),
+  
+  perineum = case_when(
+    perineum %in% c("Csection", "c_section") ~ "c_section",
+    TRUE ~ perineum
+  ),
+  
+  placentalPhase = case_when(
+    placentalPhase %in% c("activePolicy","active_policy" ) ~ "active_policy",
+    placentalPhase %in% c("manual", "manualRevision") ~ "manual",
+    placentalPhase %in% c("c_section", "c-section") ~ "c_section",
+    TRUE ~ placentalPhase
+  ),
+  episiotomy = case_when(
+    episiotomy %in% c("NVT, sectio", "c-section") ~ "c_section",
+    TRUE ~ episiotomy
+  ),
+  
+  mothertongue = case_when(
+    mothertongue %in% c("english", "English") ~ "English",
+    mothertongue %in% c("dutch", "Dutch") ~ "Dutch",
+    mothertongue %in% c("French", "french") ~ "French",
+    mothertongue == "NULL" ~ NA_character_,
+    TRUE ~ mothertongue
+  ),
+  pregnancyOnset = case_when(
+    pregnancyOnset %in% c("intraUterineInsemination", "intrauterineinsemination") ~"intraUterineInsemination",
+    pregnancyOnset %in% c("KI","ki") ~ "KI",
+    pregnancyOnset %in% c("ICSI", "icsi") ~ "ICSI",
+    pregnancyOnset %in% c("ivf", "IVF") ~ "IVF",
+    pregnancyOnset %in% c("spontaneous", "spontaneously") ~ "spontaneous",
+    pregnancyOnset %in% c("null", "NULL") ~ NA_character_,
+    TRUE ~ pregnancyOnset
+  ),
+  birthPlace = case_when(
+    birthPlace %in% c("Midwifeledunit", "midwifeLedUnit") ~ "midwifeLedUnit",
+    TRUE ~ birthPlace
+  ),
+  sectionInAnamnesis = case_when(
+    sectionInAnamnesis %in% c("yes", "ja") ~ "yes",
+    sectionInAnamnesis == "NULL" ~ NA_character_,
+    TRUE ~ sectionInAnamnesis
+  ),
+  pregnancyDuration = case_when(
+    pregnancyDuration %in% c("<37 weeks", "< 37 weeks") ~ "<37 weeks",
+    pregnancyDuration %in% c(">42 weeks", "> 42 weeks") ~ ">42 weeks",
+    pregnancyDuration == "NULL" ~ NA_character_,
+    TRUE ~ pregnancyDuration
+  )
+)
+
+View(all_data)
+
+#---------------------------Quick Checks-----------------------------------------------------------
+unique(all_data$year)
+unique(all_data$fetalSurveillance)
+unique(all_data$perineum)
+unique(all_data$resuscitation)
+unique(all_data$birthingPosition)
+unique(all_data$reasonForReferral)
+unique(all_data$bathBirth)
+unique(all_data$placentalPhase)
+unique(all_data$bloodLoss)
+unique(all_data$pregnancyOnset)
+unique(all_data$relationship) 
+unique(all_data$highestEducation) 
+unique(all_data$birthPlace) 
+
+
+saveRDS(all_data, "all_data_clean.rds") #final data combined 
