@@ -1,0 +1,574 @@
+thesis_data <- readRDS("all_data_clean.rds")
+
+library(tidyverse)
+library(dplyr)
+library(mice)
+library(naniar)
+library(lme4)
+library(forcats)
+library(scales)
+
+#cleaning based on last emails and variables--------
+#perineum is recorded as perineal trauma now in all categories
+thesis_data <- thesis_data %>% mutate(
+  perineum = case_when(
+    perineum %in% c("labial_or_minor_tears", "vaginal_wall_tear", "1stDegreeTear") ~ "minor",
+    perineum %in% c("2ndDegreeTear", "episiotomy") ~ "moderate",
+    perineum %in% c("3rdDegreeTear", "4thDegreeTear") ~ "severe",
+    perineum %in% c("intact", "c_section")  ~ "intact",
+    TRUE ~ perineum
+  ),
+  birthingResponsibility = case_when(
+    birthingResponsibility %in% c("Obstetrician", "obstetrician") ~ "obstetrician",
+    TRUE ~ birthingResponsibility
+  ),
+  bloodLoss = case_when(
+    bloodLoss %in% c("500-1000ml", ">1000ml") ~ ">500ml",
+    TRUE ~ bloodLoss
+  ),
+  bathBirth = case_when(
+    bathBirth %in% c("yes", "partial_bath_birth") ~"yes",
+    TRUE ~ bathBirth
+  ),
+  sectionInAnamnesis = case_when(
+    sectionInAnamnesis == "ja" ~ "yes",
+    TRUE ~ sectionInAnamnesis
+  ),
+  babyPosition = case_when(
+    babyPosition %in% c("backOfHeadFirst", "backOfHeadBehind", "occipitalPosition", "crownPosition",
+                        "cephalic") ~ "cephalic",
+    babyPosition %in% c("headTransversal", "transversal", "breech", "foreheadFirst",
+                        "facePresentation", "asynclitism", "tail") ~ "noncephalic",
+    babyPosition == "NULL" ~ NA_character_,
+    TRUE ~ babyPosition
+    
+  ),
+  relationship = case_when(
+    relationship %in% c("married", "cohabitation", "other relationship") ~ "relation",
+    relationship %in% c("single", "widowed") ~ "single",
+    relationship == "NULL" ~ NA_character_,
+    TRUE ~ relationship
+  ),
+  
+  fetalSurveillance = case_when(
+    fetalSurveillance %in% c("STAN", "continuous") ~ "continuous",
+    TRUE ~ fetalSurveillance
+  ),
+  
+  pregnancyOnset = case_when(
+    pregnancyOnset %in% c("KID", "KI", "intraUterineInsemination") ~ "KI",
+    TRUE ~ pregnancyOnset 
+  ),
+  
+  practiceCode = case_when(
+    practiceCode =="NULL" ~ NA_character_,
+    TRUE ~ practiceCode
+  ),
+  abortion = case_when(
+    abortion == "NULL" ~ NA_character_,
+    TRUE ~ abortion
+    
+  )
+  )
+
+
+
+
+#variables necessary for analysis----------
+
+thesis_data<- thesis_data %>% dplyr:: select(-"ZipcodeBirthCenter", -"episiotomy", 
+                                 -"referralDueToStagnation", -"expulsionPhase",
+                                 -"colorAmnioticFluid", -"frequencyOfFetalSurveillancePush",
+                                 -"consentABS", -"painkillersUsed", -"stitchedBy", -"MidwifeStaysWithMotherAfterReferral",
+                                 -"babyAdmittedToNeonatologyAfterReferral", -"painRelief", -"placeOfDeliveryAfterReferral",
+                                 -"painkillersAdministered", -"breakingofMembranes", -"ABIntrapartal", -"ifHospitalSetting",
+                                 -"zipcode", -"referralForLabour", -"postnatalReferral" ,-"frequencyOfFetalSurveillance",
+                                 -"ProlongedMembranesRuptureAndGBSstatus", -"babyAbnormalities", -"babyAdmittedToNeonatologyAfterReferral",
+                                 -"referralDueToBaby", -"InfectionInNeonateAfterGBSnegativeSwab",
+                                 -"babyAdmittedToNeonatology", -"referralReason...47", -"referralReason...50",
+                                 -"referralReason...63", -"epidural", -"plannedDelivPlac", -"anybabyAbnormalities", 
+                                 -"neonatology_admission", -"birthDate...16", -"birthDate...17")
+
+#re-coding the province for EDA
+thesis_data$province <-dplyr::recode(thesis_data$province,
+                             "Antwerpen" = "Antwerp",
+                             "Oost-Vlaanderen" = "East Flanders",
+                             "Vlaams-Brabant" = "Flemish Brabant",
+                             "Limburg" = "Limburg",
+                             "West-Vlaanderen" = "West Flanders",
+                             "Waals-Brabant" = "Walloon Brabant",
+                             "Nederland" = "Netherlands",
+                             "Namen" = "Namur",
+                             "Brussel" = "Brussels",
+                             "Brussels hoofdstedelijk gewest" = "Brussels Capital Region",
+                             "Henegouwen" = "Hainaut",
+                             "Luxemburg" = "Luxembourg"
+)
+#remove all women from Netherlands and combine Brussels
+thesis_data <- thesis_data %>%
+  mutate(
+    province = case_when(
+      province %in% c("Brussels", "Brussels Capital Region") ~ "Brussels",
+      province %in% c("Netherlands") ~ NA_character_,
+      TRUE ~ province
+    )
+  )
+
+#regrouping all reasons for referral into PPH, Tears, Stagnation, Pain Relief and others - EDA
+thesis_data<- thesis_data %>% mutate(
+  reasonForReferral = case_when(
+    reasonForReferral %in% c("first_degree_tear_sutured", "suturesObstetrician", 
+                             "labial_or_minor_tears", "vaginal_tear", "third_degree_tear_sutured",
+                             "second_degree_tear_sutured") ~ "due_to_tears",
+    reasonForReferral %in% c("PPH_with_complications", "PPH_with_transfusion", "PPH") ~ "due_to_PPH",
+    reasonForReferral %in% c("urgent", "other") ~ "other_reasons",
+    reasonForReferral == "stagnation" ~ "stagnation",
+    reasonForReferral == "patient_request" ~ "painrelief",
+    reasonForReferral %in% c("NULL") ~ "NAP",
+    reasonForReferral == "no" ~ "no_referral",
+    TRUE ~ reasonForReferral
+    
+  )
+)
+
+thesis_data$reasonForReferral[is.na(thesis_data$reasonForReferral)] <- "NAP" #missing ones are not applicable
+
+
+#regroup referrals due to baby - EDA
+thesis_data <- thesis_data %>% mutate(
+  postnatalReferralDueToBaby = case_when(
+    postnatalReferralDueToBaby %in% c("already_at_hospital", "yes", "Intrapartum transfer") ~ "yes",
+    postnatalReferralDueToBaby == "no" ~ "no",
+    
+  )
+)
+thesis_data$postnatalReferralDueToBaby[is.na(thesis_data$postnatalReferralDueToBaby)] <- "NAP" 
+
+#re-group BMI
+thesis_data <- thesis_data %>% mutate(
+  BMI = case_when(
+    BMI %in% c("18,5 - 24,9 kg/m²") ~ "18,5 - 24,9 kg/m²",
+    BMI %in% c("≤ 18,5 kg/m²", "< 18,5 kg/m²") ~ "< 18,5 kg/m²",
+    BMI %in% c("NULL") ~ NA_character_,
+    TRUE ~ BMI 
+  ),
+  relationship = case_when(
+    relationship == "NULL" ~ NA_character_,
+    TRUE ~ relationship
+  ),
+  
+  #every blank in delivery = spontaneous
+  delivery = case_when(
+    is.na(delivery) ~ "spontaneously",
+    delivery %in% c("ventouse", "forceps") ~ "instrumental",
+    TRUE ~ delivery
+  )
+)
+
+thesis_data <- thesis_data %>% dplyr::select(-"reasonForUrgentReferral", -"reasonsForNonUrgentReferral")
+
+#check columns that have NULL in them
+names(thesis_data)[
+  sapply(thesis_data, function(x) any(x == "NULL", na.rm = TRUE))]
+
+#first regroup preg.duration
+thesis_data<- thesis_data %>% mutate(
+  pregnancyDuration = case_when(
+    pregnancyDuration %in% c(">42 weeks", "37-42 weeks") ~ ">= 37 weeks",
+    TRUE ~ pregnancyDuration
+  ))
+
+#remove en-route births (these are 12 women in total)
+print(enroute <-thesis_data %>% filter(birthPlace == "enroute") %>% summarise(n=n()))
+
+thesis_data <- thesis_data %>% filter(birthPlace != "enroute") 
+
+
+
+# low-risk versus high-risk women 
+
+#how many women meet the 3 criteria - before imputation?
+low_risk_raw <- thesis_data %>%
+  filter(
+    sectionInAnamnesis == "no",
+    babyPosition == "cephalic",
+    pregnancyDuration == ">= 37 weeks"
+  ) %>%
+  summarise(n = n())
+print(low_risk_raw)
+
+#---------------------------Missing data exploration---------------------------------------------------
+#some key variables for exploration
+
+variable_labels <- c(
+  maternalAge = "Age",
+  pregnancyOnset = "Pregnancy onset",
+  pregnancyDuration = "Pregnancy duration",
+  GBS = "GBS",
+  BMI = "BMI",
+  firstOrMultiParity = "Parity",
+  highestEducation = "Education",
+  relationship = "Relationship",
+  bathBirth = "Water birth",
+  birthingPosition = "Birthing position",
+  bloodLoss = "Blood loss",
+  perineum = "Perineal trauma",
+  placentalPhase = "Placental phase",
+  fetalSurveillance = "Fetal surveillance",
+  resuscitation_any = "Resuscitation"
+)
+
+missing_summary <- thesis_data %>%
+  dplyr::select(all_of(vars_used)) %>%
+  summarise(across(everything(), ~ sum(is.na(.)))) %>%
+  pivot_longer(
+    everything(),
+    names_to = "Variable",
+    values_to = "Missing_n"
+  ) %>%
+  mutate(
+    Missing_percent = round(Missing_n / nrow(thesis_data) * 100, 1),
+    Variable = recode(Variable, !!!variable_labels)
+  ) %>%
+  arrange(desc(Missing_percent))
+
+missing_summary
+
+
+
+#plot of summary- general 1
+ggplot(missing_summary,
+       aes(x = reorder(Variable, Missing_percent),
+           y = Missing_percent)) +
+  geom_col() +
+  coord_flip() +
+  labs(
+    x = "Variables",
+    y = "Missing data (%)",
+    #title = "Missing Data Across Study Variables"
+  ) +
+  theme_minimal()
+
+#plot- second try ------------------
+ggplot(missing_summary,
+       aes(x = reorder(Variable, Missing_percent),
+           y = Missing_percent,
+           fill = Missing_percent)) + geom_col() + coord_flip() + labs(
+    x = "",
+    y = "Observations(%)"
+  )   + theme(axis.title.x = element_text(size = 4)) + theme_minimal() + scale_fill_gradient(
+    low = "#D6EAF8",
+    high = "#0B1B8C",
+    name = "Observations Missing (%)") +  theme(legend.position = "top") + theme(
+    legend.title = element_text(size = 6),
+    legend.text = element_text(size = 6),
+    legend.key.height = unit(0.5, "cm"),
+    legend.key.width = unit(0.5, "cm")
+  )
+
+#----------------------------Exploration---------------------------------------------------------
+
+#blood loss counts - what about NAs?
+ggplot(thesis_data, aes(x = factor(year), fill = bloodLoss)) +
+  geom_bar(position = "dodge") +
+  scale_fill_manual(values = c("<500ml" = "lightblue",
+                               ">500ml" = "red")) +
+  labs(x = "Year",
+       y = "Count",
+       fill = "Blood Loss:") + theme_classic() + theme(legend.position = "bottom")
+
+#blood loss per year with proportion
+loss_year <- thesis_data %>% group_by(year, bloodLoss) %>% 
+  summarise(n = n(), .groups = "drop_last") %>% mutate(prop = n / sum(n) *100)
+ loss_year 
+ 
+ ggplot(loss_year, aes(x = factor(year), y = prop, fill = bloodLoss)) +
+   geom_col(position = "dodge") + scale_fill_manual(values = c("<500ml" = "lightblue",
+       ">500ml" = "red"), na.value = "grey70") + scale_y_continuous(labels = function(x) paste0(x, "%")) +
+   labs(
+     x = "Year",
+     y = "Proportion",
+     fill = "Blood Loss:"
+   ) + theme_classic() + theme(
+     legend.position = "bottom",
+     legend.title = element_text(face = "plain", size = 8),
+     legend.text = element_text(size = 8),
+     axis.title = element_text(face = "plain"),
+     axis.text = element_text(color = "black"),
+     plot.margin = margin(10, 15, 10, 10)
+   )
+
+#blood loss by water-birth -->no water birth = slightly higher percentage of blood loss
+tab <- table(thesis_data$bathBirth, thesis_data$bloodLoss)
+
+round(prop.table(tab, margin = 1) * 100, 1)
+
+#any referrals
+any_ref<- thesis_data%>% group_by(reasonForReferral) %>% summarise(prop_ref = n()/ nrow(thesis_data) *100)
+any_ref
+#referrals by water or land births - not very informative
+tab_mother <- table(
+  WaterBirth = thesis_data$bathBirth,
+  MotherReferred = thesis_data$reasonForReferral
+) 
+
+round(prop.table(tab_mother, 1) * 100, 1)
+
+#birth place and responsibility 
+
+respo<- thesis_data %>% group_by(birthingResponsibility) %>% summarise(prop_resp = n() / nrow(thesis_data)*100)
+respo
+
+place<- thesis_data %>% group_by(birthPlace) %>% summarise(prop = n() / nrow(thesis_data)*100)
+place
+
+#----------perineal trauma-------------------
+
+#better plot-- perineal trauma by year
+ggplot(thesis_data, aes(x = factor(year), fill = fct_explicit_na(perineum, na_level = "Missing")
+  )) + geom_bar(position = "fill", colour = "white") +
+  scale_y_continuous(labels = percent_format()) +
+  scale_fill_manual(
+    values = c(
+      "intact" = "#7fcdbb" ,
+      "minor" = "#c7e9b4" ,
+      "moderate" = "#fdae61",
+      "severe" = "#d73027",
+      "Missing" = "grey70"
+    ), labels = c(
+      "intact" = "Intact",
+      "minor" = "Minor",
+      "moderate" = "Moderate",
+      "severe" = "Severe",
+      "Missing" = "NA"
+    )) +
+  labs(
+    x = "Year",
+    y = "Proportion",
+    fill = "Trauma:"
+  ) +
+  theme_classic(base_size = 13) +
+  theme(
+    legend.position = "bottom",
+    legend.title.position = "top",
+    legend.title = element_text(face = "plain", size = 6),
+    legend.text = element_text(size = 6),
+    legend.key.height = unit(0.5, "cm"),
+    legend.key.width = unit(0.5, "cm"),
+    axis.text = element_text(color = "black")
+  )
+#percentages of trauma by year - to be used next to the graph in writing EDA
+year_trauma <- thesis_data %>%
+  group_by(year, perineum) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  
+  group_by(year) %>%
+  mutate(percentage = round((n / sum(n)) * 100, 1)) %>%
+  
+  dplyr::select(-n)
+
+year_trauma_wide <- year_trauma %>%
+  
+  pivot_wider(
+    names_from = perineum,
+    values_from = percentage
+  )
+year_trauma_wide
+
+
+#trauma by bath birth
+
+perineum_table <- thesis_data %>% filter(!is.na(perineum), !is.na(bathBirth))%>%group_by(
+  bathBirth, perineum) %>% summarise(n = n(), .groups = "drop") %>%
+  group_by(bathBirth) %>% mutate(
+    proportion = round((n / sum(n)) * 100, 1)
+  ) %>% dplyr::select(-n) %>% pivot_wider(names_from = bathBirth, values_from = proportion)
+
+perineum_table
+
+#trauma by birthing position - removed c-section here since not applicable tp perieum trauma
+position_table <- thesis_data %>%
+  filter(!is.na(perineum), birthingPosition != "section") %>%
+  
+  group_by(birthingPosition, perineum) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  
+  group_by(birthingPosition) %>%
+  mutate(percentage = round((n / sum(n)) * 100, 1)) %>%
+  
+  dplyr::select(-n) %>%
+  
+  tidyr::pivot_wider(
+    names_from = perineum,
+    values_from = percentage
+  )
+position_table
+
+
+#--------------------------Choice of water birth----------------------------------
+#bath births - overall
+waterbaths<- thesis_data %>% group_by(bathBirth) %>% summarise(prop = n() / nrow(thesis_data))
+print(waterbaths)
+
+#bath births by year
+
+bath_year <- thesis_data %>%filter(!is.na(year), !is.na(bathBirth))%>% group_by(year, bathBirth) %>% summarise(
+  prop = n()/ nrow(thesis_data), .groups = "drop") %>% pivot_wider(names_from = bathBirth, values_from = prop)
+bath_year
+
+#bath choice by education, relationship, first or multi-parity
+round(prop.table(table(thesis_data$bathBirth, thesis_data$highestEducation), 1) * 100, 1) #education
+round(prop.table(table(thesis_data$bathBirth, thesis_data$firstOrMultiParity), 1) * 100, 1) #parity
+round(prop.table(table(thesis_data$bathBirth, thesis_data$relationship), 1) * 100, 1)
+
+#bath birth by province
+
+#proportions by province: Of all recorded water births, what percentage occurred in each province?
+ggplot(subset(thesis_data,
+              bathBirth == "yes" & !is.na(province)),
+       aes(x = province)) +
+  geom_bar(aes(y = after_stat(prop), group = 1),
+           fill = "steelblue") +
+  scale_y_continuous(
+    labels = percent_format(),
+    limits = c(0, 0.3),
+    breaks = seq(0, 0.3, by = 0.05)
+  ) +labs(y = "Proportion", x = "Province") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+#proportions : bath births by province numbers
+prop_water <- thesis_data %>%
+  filter(!is.na(bathBirth),
+         !is.na(province),
+         bathBirth == "yes") %>%
+  count(province) %>%
+  mutate(prop = n / sum(n))
+
+prop_water
+  
+#------------------------------------------------------------------------------------------------
+#age- distribution
+ggplot(thesis_data, aes(x = maternalAge)) +
+  geom_histogram(bins = 30, fill = "#8DA0CB",  color = "black") +
+  labs(x = "Maternal age (years)", y = "Count") + theme_classic()
+
+#age by blood loss >500ml
+ggplot(subset(thesis_data, bloodLoss == ">500ml"),
+       aes(x = maternalAge)) +
+  geom_histogram(binwidth = 2, fill = "#2A9D8F", color = "white") +
+  labs(
+    x = "Maternal age (years)",
+    y = "Count",
+   # title = "Maternal age distribution in hemorrhage cases"
+  ) 
+#after seeing distribution of age, create categories then report proportions
+age_blood<- thesis_data %>%
+  mutate(
+    age_group = cut(
+      maternalAge,
+      breaks = c(0, 24, 29, 34, 39, Inf),
+      labels = c("<25", "25–29", "30–34", "35–39", "40+")
+    )
+  ) %>% filter(!is.na(age_group)) %>% group_by(age_group) %>%
+  summarise(
+    total_women = n(),
+    hemorrhage_cases = sum(bloodLoss == ">500ml", na.rm = TRUE),
+    proportion = round(
+      mean(bloodLoss == ">500ml", na.rm = TRUE) * 100,
+      1
+    )
+  )
+age_blood
+
+#-----------------------------------------------------------------------------------------------
+#neonatal - bath birth crossed with resuscitation
+clean_data <- subset(
+  thesis_data,
+  !is.na(resuscitation_any) & !is.na(bathBirth)
+)
+
+prop.table(
+  table(
+    factor(clean_data$resuscitation_any,
+           levels = c("no", "yes"),
+           labels = c("No resuscitation", "Resuscitation")),
+    
+    factor(clean_data$bathBirth,
+           levels = c("no", "yes"),
+           labels = c("No bath birth", "Bath birth"))
+  ),
+  margin = 2
+)
+
+count_resus<- thesis_data %>% filter(!is.na(resuscitation_any)) %>% group_by(resuscitation_any)%>%summarise(
+  proportion = n() / nrow(thesis_data) *100
+)
+count_resus
+
+#apgar scores--------------------------------------
+#at 1 minute
+round(
+  prop.table(
+    table(ifelse(thesis_data$apgar1min < 7, "< 7", ">= 7")
+    )) * 100, 1)
+
+#at 5 min
+round(prop.table(table(
+      ifelse(thesis_data$apgar5min < 7, "< 7", ">= 7")
+    )) * 100, 1)
+######
+tab <- table(
+  thesis_data$gender[
+    thesis_data$apgar1 >= 7 & thesis_data$apgar5 >= 7
+  ]
+)
+round(prop.table(tab) * 100, 1)
+
+#cross-tab by gender of baby
+round(prop.table(table(
+      case_when(
+        thesis_data$apgar1 >= 7 & thesis_data$apgar5 >= 7 ~ "Both>= 7",
+        
+        thesis_data$apgar1 < 7 & thesis_data$apgar5 >= 7 ~ "1min<7 & 5min>=7",
+        
+        thesis_data$apgar1 >= 7 & thesis_data$apgar5 < 7 ~ "1min>=7 & 5min<7",
+        
+        thesis_data$apgar1 < 7 & thesis_data$apgar5 < 7 ~ "Both< 7",
+        
+        TRUE ~ NA_character_
+      ),
+      useNA = "no"
+    )
+  ) * 100,
+  1
+)
+
+#Missing in practice code
+sum(is.na(thesis_data$practiceCode))
+thesis_data <- thesis_data %>% filter(!is.na(practiceCode)) #remove them since only 5
+
+
+#-------------------------IMPUTATION-FINAL------------------------------------------
+data_imputed<- thesis_data
+data_imputed <- data_imputed %>%
+  mutate(across(where(is.character), as.factor))
+
+meth <- make.method(data_imputed)
+pred <- make.predictorMatrix(data_imputed)
+meth[c("patid",
+       "practiceCode",
+       "year",
+       "reasonForReferral",
+       "postnatalReferralDueToBaby", "delivery")] <- "" #prevent from being imputed
+pred[c("patid", "practiceCode", "year", "reasonForReferral", "postnatalReferralDueToBaby", "delivery"), ] <- 0
+
+impt <- mice(
+  data_imputed,
+  m = 5,
+  maxit = 10,
+  method = meth,
+  predictorMatrix = pred,
+  seed = 123
+)
+saveRDS(impt, "Final_thesis.rds")
+View(complete(impt, 1))
