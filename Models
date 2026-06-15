@@ -1,0 +1,317 @@
+library(tidyverse)
+library(dplyr)
+library(mice)
+library(naniar)
+library(lme4)
+library(forcats)
+library(scales)
+library(MASS)
+library(geepack)
+library(car)
+library(ordinal)
+library(VGAM)
+library(lmtest)
+library(brant)
+
+impt <- readRDS("Final_thesis.rds")
+#------------------------------ NEONATAL OUTCOMES-----------------------------------
+# (A)-- APGAR 1 MINUTE---
+apgar1_bin_model <- lapply(imp_list, function(d){
+  
+  glm(
+    apgar1_cat ~ bathBirth + highestEducation + nParity + relationship +
+      birthingResponsibility + GBS + pregnancyOnset + BMI + maternalAge +
+      birthWeight_kg + year_c + birthPlace + fetalSurveillance + delivery + bathBirth*fetalSurveillance,
+    data = d,
+    family = binomial
+  )
+})
+
+apgar1results <- summary(fit_bin_pooled <- pool(as.mira(apgar1_bin_model)))
+print(apgar1_results_rounded<- apgar1results %>% mutate(across(c(estimate, std.error, statistic, df, p.value), ~ round(., 4))))
+
+#reduced model-- no interactions
+apgar1_bin_reduced <- lapply(imp_list, function(d){
+  
+  glm(
+    apgar1_cat ~ bathBirth + highestEducation + nParity + relationship +
+      birthingResponsibility + GBS + pregnancyOnset + BMI + maternalAge +
+      birthWeight_kg + year_c + birthPlace + fetalSurveillance + delivery,
+    data = d,
+    family = binomial
+  )
+})
+apgar1binresults <- summary(fit_bin_reduced <- pool(as.mira(apgar1_bin_reduced)))
+print(apgar1binresults_rounded2 <- apgar1binresults%>%mutate(OR = exp(estimate), LCL= estimate - qt(0.975, df) * std.error,
+                                                             UCL = estimate + qt(0.975, df) * std.error,
+                                                             OR_LCL  = exp(LCL), OR_UCL = exp(UCL))%>%
+        mutate(OR_CI = sprintf("(%.3f, %.3f)",  OR_LCL, OR_UCL)) %>%
+        dplyr::select(term, estimate, std.error,statistic, p.value, OR, OR_CI) %>%
+        mutate(across(c(estimate, OR, std.error, statistic, p.value), ~ round(., 4))))
+
+D3(fit0 = as.mira(apgar1_bin_reduced), fit1 = as.mira(apgar1_bin_model))
+
+#Multi-collinearity
+apgar1_vif <-glm(apgar1_cat ~ bathBirth + highestEducation + nParity + relationship +
+                   birthingResponsibility + GBS + pregnancyOnset + BMI + maternalAge +
+                   birthWeight_kg + year_c + birthPlace + fetalSurveillance + delivery,
+                 data = imp_list[[1]],  family = binomial())
+
+vif(apgar1_vif, type= "predictor") 
+
+# (B)--- APGAR 5 MINUTES ----
+# full model
+apgar5_bin_model <- lapply(imp_list, function(d){
+  
+  glm(
+    apgar5_cat ~ bathBirth + highestEducation + nParity + relationship + 
+      birthingResponsibility + GBS  + BMI + maternalAge + birthingPosition +
+      birthWeight_kg + year_c + birthPlace + fetalSurveillance + bathBirth * fetalSurveillance,
+    data = d, family = binomial
+  )
+})
+
+apgar5binresults <- summary(ap5min_bin_pooled <- pool(as.mira(apgar5_bin_model )))
+print(apgar5bin_results_rounded<- apgar5binresults %>% mutate(across(c(estimate, std.error, statistic, df, p.value), ~ round(., 4))))
+
+# Reduced model: No interactions
+
+apgar5_reduced_model <- lapply(imp_list, function(d){
+  
+  glm(
+    apgar5_cat ~ bathBirth + highestEducation + nParity + relationship + 
+      birthingResponsibility + GBS  + BMI + maternalAge + birthingPosition +
+      birthWeight_kg + year_c + birthPlace + fetalSurveillance ,
+    data = d, family = binomial
+  )
+})
+apgar5_reduced_results2<-summary(Apgar_pooled <- pool(as.mira(apgar5_reduced_model)))
+
+print(apgar5_reduced_rounded2 <- apgar5_reduced_results2%>%mutate(OR = exp(estimate), LCL= estimate - qt(0.975, df) * std.error,
+                                                                  UCL = estimate + qt(0.975, df) * std.error,
+                                                                  OR_LCL  = exp(LCL), OR_UCL = exp(UCL))%>%
+        mutate(OR_CI = sprintf("(%.3f, %.3f)",  OR_LCL, OR_UCL)) %>%
+        dplyr::select(term, estimate, std.error,statistic, p.value, OR, OR_CI) %>%
+        mutate(across(c(estimate, OR, std.error, statistic, p.value), ~ round(., 4))))
+#LRT 
+D3(fit0 = as.mira(apgar5_reduced_model), fit1 = as.mira(apgar5_bin_model))
+
+
+#Multi-collinearity
+apgar5_vif <-glm(apgar5_cat ~ bathBirth + highestEducation + nParity + relationship + 
+                   birthingResponsibility + GBS  + BMI + maternalAge + birthingPosition +
+                   birthWeight_kg + year_c + birthPlace + fetalSurveillance ,
+                data = imp_list[[1]],  family = binomial())
+
+vif(apgar5_vif, type= "predictor") 
+
+# (C): -------RESUSCITATION-------------
+resusc_model<- lapply(imp_list, function(d) {
+  
+  glm(resusc_bin ~ bathBirth + highestEducation +  nParity + relationship + birthingResponsibility +
+        GBS + pregnancyOnset + BMI + maternalAge + birthWeight_kg +  year_c +  birthPlace + fetalSurveillance + delivery +
+        bathBirth *nParity + bathBirth*fetalSurveillance ,
+      data = d,
+      family = binomial()
+  )})
+
+print(result1<- summary(fit1_pooled <- pool(as.mira(resusc_model))))
+print(result1_rounded <- result1 %>%mutate(across(c(estimate, std.error, statistic, df, p.value), ~ round(., 5))))
+
+#Reduced Model : No Interactions
+red_resus_model <- lapply(imp_list, function(d) {
+  
+  glm(resusc_bin ~ bathBirth + highestEducation +  nParity + relationship + birthingResponsibility +
+        GBS + pregnancyOnset + BMI + maternalAge + birthWeight_kg +  year_c +  birthPlace + fetalSurveillance + delivery,
+      data = d,
+      family = binomial()
+  )})
+
+result2<- summary(fit2_pooled <- pool(as.mira(red_resus_model)))
+print(result2_rounded <- result2 %>%mutate(OR = exp(estimate), LCL= estimate - qt(0.975, df) * std.error,
+                                           UCL = estimate + qt(0.975, df) * std.error,
+                                           OR_LCL  = exp(LCL), OR_UCL = exp(UCL))%>%
+        mutate(OR_CI = sprintf("(%.3f, %.3f)",  OR_LCL, OR_UCL)) %>%
+        dplyr::select(term, estimate, std.error,statistic, p.value, OR, OR_CI) %>%
+        mutate(across(c(estimate, OR, std.error, statistic, p.value), ~ round(., 4))))
+
+D3(fit0 = as.mira(red_resus_model), fit1 = as.mira(resusc_model))
+
+#------------------------------------- WATER BIRTHS--------------------------------------------
+
+#* Full Model with Interactions
+model_water <- lapply(imp_list, function(d) {
+  
+  glm(bathBirth_bin ~ highestEducation +  nParity + relationship + birthingResponsibility +
+        GBS + pregnancyOnset + BMI + maternalAge +year_c +  birthPlace +
+        highestEducation *nParity + maternalAge*nParity + pregnancyOnset*maternalAge, data = d,
+      family = binomial()
+  )
+  
+})
+
+print(water<- summary(fit5_pooled <- pool(as.mira(model_water))))
+print(waterr<- water %>% mutate(across(c(estimate, std.error, statistic, df, p.value), ~ round(., 5))))
+
+
+#* Reduced Model: Remove non-significant interactions
+
+reduced_water_model <- lapply(imp_list, function(d) {
+  
+  glm(bathBirth_bin ~ highestEducation +  nParity + relationship + birthingResponsibility +
+        GBS + pregnancyOnset + BMI + maternalAge +year_c +  birthPlace + maternalAge*nParity , data = d,
+      family = binomial())})
+
+reduced_water_results2<-summary(water_pooled <- pool(as.mira(reduced_water_model)))
+
+print(reduced_water_rounded <- reduced_water_results2 %>%mutate(OR = exp(estimate), LCL= estimate - qt(0.975, df) * std.error,
+                                                                UCL = estimate + qt(0.975, df) * std.error,
+                                                                OR_LCL  = exp(LCL), OR_UCL = exp(UCL))%>%
+        mutate(OR_CI = sprintf("(%.3f, %.3f)",  OR_LCL, OR_UCL)) %>%
+        dplyr::select(term, estimate, std.error,statistic, p.value, OR, OR_CI) %>%
+        mutate(across(c(estimate, OR, std.error, statistic, p.value), ~ round(., 4))))
+
+#--------------------MATERNAL OUTCOMES -----------------------------------------
+# (A): BLOOD LOSS
+# (i): Full Model
+blood_model1 <- lapply(imp_list, function(d) {
+  
+  glm(bloodloss_bin ~ bathBirth + highestEducation +  nParity + relationship + birthingResponsibility +
+        GBS + pregnancyOnset + BMI + maternalAge + birthWeight_kg +  year_c +  birthPlace + fetalSurveillance +
+        + delivery + birthingPosition + bathBirth *nParity + bathBirth*fetalSurveillance + placentalPhase, data = d, family = binomial())})
+
+blood_results1<-summary(bloodfit_pooled <- pool(as.mira(blood_model1)))
+print(blood_rounded1 <- blood_results1 %>%mutate(across(c(estimate, std.error, statistic, df, p.value), ~ round(., 4))))
+
+
+#Reduced model: No interactions (added birthing Position)
+
+blood_model_reduced <- lapply(imp_list, function(d) {
+  
+  glm(bloodloss_bin ~ bathBirth + highestEducation +  nParity + relationship + birthingResponsibility +
+        GBS + pregnancyOnset + BMI + maternalAge + birthWeight_kg +  year_c +  birthPlace + fetalSurveillance +
+        + delivery + birthingPosition + placentalPhase, data = d, family = binomial())})
+
+blood_results2<-summary(bloodfit2_pooled <- pool(as.mira(blood_model_reduced)))
+
+print(blood_rounded2 <- blood_results2 %>%mutate(OR = exp(estimate), LCL= estimate - qt(0.975, df) * std.error,
+                                                 UCL = estimate + qt(0.975, df) * std.error,
+                                                 OR_LCL  = exp(LCL), OR_UCL = exp(UCL))%>%
+        mutate(OR_CI = sprintf("(%.3f, %.3f)",  OR_LCL, OR_UCL)) %>%
+        dplyr::select(term, estimate, std.error,statistic, p.value, OR, OR_CI) %>%
+        mutate(across(c(estimate, OR, std.error, statistic, p.value), ~ round(., 4))))
+
+#***************Model Assumptions -> Reduced model(Blood loss)**********************
+#---Linearity Assumption >> Continuous covariates
+ggplot(imp_list[[1]], aes(x = maternalAge, y = bloodloss_bin)) +
+  geom_jitter(height = 0.03, width = 0.1, shape = 1, color = "black") +
+  theme_classic() + labs(x = "Maternal Age (years)", y = "Blood Loss")
+
+#birth weight
+ggplot(imp_list[[1]], aes(x = birthWeight_kg, y = bloodloss_bin)) +
+  geom_jitter(height = 0.03, width = 0.1, shape = 1, color = "black") +
+  theme_classic()+ labs(x = "Birth Weight (kg)", y = "Blood Loss")
+
+#parity
+ggplot(imp_list[[1]], aes(x = nParity, y = bloodloss_bin)) +
+  geom_jitter(height = 0.03, width = 0.1, shape = 1, color = "black") +
+  theme_classic()+ labs(x = "Parity", y = "Blood Loss")
+
+#----Multi-colinearity 
+m2_vif <-glm(bloodloss_bin ~ bathBirth + highestEducation +  nParity + relationship +
+               birthingResponsibility +GBS + pregnancyOnset + BMI + maternalAge + birthWeight_kg +  year_c +  birthPlace 
+             + fetalSurveillance + delivery + birthingPosition + placentalPhase,
+             data = imp_list[[1]],  family = binomial())
+
+vif(m2_vif, type= "predictor") 
+
+#----Overall Model Fit Comparison:
+#Likelihood ratio statistic - LR Method : Meng and Rubin (1992)
+D3(fit0 = as.mira(blood_model_reduced), fit1 = as.mira(blood_model1)) #prefer reduced model
+
+
+# PERINEAL TRAUMA
+# (i): Full model
+imp_list <- lapply(imp_list, function(d) {
+  
+  d <- subset(
+    d,
+    delivery != "sectio" &
+      birthingPosition != "section"
+  )
+  
+  d <- droplevels(d)
+  d})
+#with interactions
+per_bin_model <- lapply(imp_list, function(d) {
+  
+  glm(
+    perineum_bin ~ bathBirth + highestEducation + nParity + relationship +
+      birthingResponsibility + birthingPosition + GBS + pregnancyOnset +
+      BMI + maternalAge + birthWeight_kg + year_c + birthPlace + delivery +
+      bathBirth *nParity + fetalSurveillance, data = d, family = binomial(link = logit))})
+peri_results <- summary(pool(as.mira(per_bin_model)))
+print(prnm_pooled<-peri_results %>% mutate(across(c(estimate, std.error, statistic, df, p.value), ~ round(., 4))))
+
+
+#reduced model
+per_bin_reduced <- lapply(imp_list, function(d) {
+  
+  glm(
+    perineum_bin ~ bathBirth + highestEducation + nParity + relationship +
+      birthingResponsibility + birthingPosition + GBS + pregnancyOnset +
+      BMI + maternalAge + birthWeight_kg + year_c + birthPlace + delivery
+    + fetalSurveillance, data = d, family = binomial(link = logit))})
+peri_res_reduc <- summary(pool(as.mira(per_bin_reduced)))
+
+print(peri_res_reduc_rounded <- peri_res_reduc %>%mutate(OR = exp(estimate), LCL= estimate - qt(0.975, df) * std.error,
+                                                         UCL = estimate + qt(0.975, df) * std.error,
+                                                         OR_LCL  = exp(LCL), OR_UCL = exp(UCL))%>%
+        mutate(OR_CI = sprintf("(%.3f, %.3f)",  OR_LCL, OR_UCL)) %>%
+        dplyr::select(term, estimate, std.error,statistic, p.value, OR, OR_CI) %>%
+        mutate(across(c(estimate, OR, std.error, statistic, p.value), ~ round(., 4))))
+
+#Overall Fit : D3 not working
+d3 <- imp_list[[1]]
+
+full_mod <- glm(
+  perineum_bin ~ bathBirth + highestEducation + nParity + relationship +
+    birthingResponsibility + birthingPosition + GBS + pregnancyOnset +
+    BMI + maternalAge + birthWeight_kg + year_c + birthPlace + delivery +
+    bathBirth*nParity + fetalSurveillance,
+  data = d3,
+  family = binomial
+)
+
+red_mod <- glm(
+  perineum_bin ~ bathBirth + highestEducation + nParity + relationship +
+    birthingResponsibility + birthingPosition + GBS + pregnancyOnset +
+    BMI + maternalAge + birthWeight_kg + year_c + birthPlace + delivery +
+    fetalSurveillance,
+  data = d3,
+  family = binomial
+)
+lrtest(red_mod, full_mod)
+
+# Diagnostics
+ggplot(imp_list[[1]], aes(x = maternalAge, y = perineum_bin)) +
+  geom_jitter(height = 0.03, width = 0.1, shape = 1, color = "black") +
+  theme_classic() + labs(x = "Maternal Age (years)", y = "Perineal Trauma")
+
+
+ggplot(imp_list[[1]], aes(x = birthWeight_kg, y = perineum_bin)) +
+  geom_jitter(height = 0.03, width = 0.1, shape = 1, color = "black") +
+  theme_classic() + labs(x = "Birth Weight (kg)", y = "Perineal Trauma")
+
+ggplot(imp_list[[1]], aes(x = nParity, y = perineum_bin)) +
+  geom_jitter(height = 0.03, width = 0.1, shape = 1, color = "black") +
+  theme_classic() + labs(x = "Parity", y = "Perineal Trauma")
+
+#multi-collinearity
+per_vif <-glm(perineum_bin ~ bathBirth + highestEducation + nParity + relationship +
+                birthingResponsibility + birthingPosition + GBS + pregnancyOnset +
+                BMI + maternalAge + birthWeight_kg + year_c + birthPlace + delivery +
+                fetalSurveillance,
+              data = imp_list[[1]],  family = binomial())
+
+vif(per_vif, type= "predictor") 
